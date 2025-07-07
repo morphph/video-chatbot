@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Video Chatbot</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-4xl font-bold text-center mb-8 text-gray-800">YouTube Video Chatbot</h1>
+        
+        <!-- Video Input Section -->
+        <div class="max-w-2xl mx-auto mb-8">
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-xl font-semibold mb-4">Process YouTube Video</h2>
+                <form id="videoForm" class="space-y-4">
+                    <div>
+                        <label for="videoUrl" class="block text-sm font-medium text-gray-700 mb-2">
+                            YouTube Video URL
+                        </label>
+                        <input 
+                            type="url" 
+                            id="videoUrl" 
+                            placeholder="https://www.youtube.com/watch?v=..."
+                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            required
+                        >
+                    </div>
+                    <button 
+                        type="submit" 
+                        id="processBtn"
+                        class="w-full bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 transition-colors"
+                    >
+                        Process Video
+                    </button>
+                </form>
+                <div id="status" class="mt-4 text-sm text-gray-600"></div>
+            </div>
+        </div>
+
+        <!-- Chat Section -->
+        <div id="chatSection" class="max-w-4xl mx-auto hidden">
+            <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                <div id="videoInfo" class="bg-gray-50 p-4 border-b">
+                    <h3 class="font-semibold text-lg">Video Information</h3>
+                    <p class="text-sm text-gray-600">Video will appear here after processing</p>
+                </div>
+                
+                <div id="messages" class="h-96 overflow-y-auto p-4 space-y-4">
+                    <div class="text-center text-gray-500">
+                        Ask anything about the video content!
+                    </div>
+                </div>
+                
+                <form id="chatForm" class="p-4 border-t">
+                    <div class="flex space-x-2">
+                        <input 
+                            type="text" 
+                            id="messageInput" 
+                            placeholder="Ask about the video..."
+                            class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                        <button 
+                            type="submit"
+                            id="sendBtn"
+                            class="px-6 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+                        >
+                            Send
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Backend Status -->
+        <div class="max-w-2xl mx-auto mt-8">
+            <div class="bg-yellow-50 border border-yellow-200 rounded-md p-4">
+                <h3 class="font-semibold text-yellow-800">Backend Status</h3>
+                <p class="text-sm text-yellow-700 mt-1">
+                    <span id="backendStatus">Checking...</span>
+                </p>
+                <p class="text-xs text-yellow-600 mt-2">
+                    Make sure the backend is running at http://localhost:8000
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        let currentVideoId = null;
+        let currentConversationId = null;
+
+        // Check backend status
+        async function checkBackend() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                if (response.ok) {
+                    document.getElementById('backendStatus').textContent = '✅ Backend is running';
+                    document.getElementById('backendStatus').className = 'text-green-700';
+                } else {
+                    throw new Error('Backend not responding');
+                }
+            } catch (error) {
+                document.getElementById('backendStatus').textContent = '❌ Backend not running - Start the backend server';
+                document.getElementById('backendStatus').className = 'text-red-700';
+            }
+        }
+
+        // Process video
+        document.getElementById('videoForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const url = document.getElementById('videoUrl').value;
+            const processBtn = document.getElementById('processBtn');
+            const status = document.getElementById('status');
+
+            processBtn.disabled = true;
+            processBtn.textContent = 'Processing...';
+            status.textContent = 'Processing video...';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/videos/process`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+
+                const result = await response.json();
+                currentVideoId = result.video_id;
+                
+                // Poll for completion
+                const pollInterval = setInterval(async () => {
+                    try {
+                        const statusResponse = await fetch(`${API_BASE}/api/videos/${currentVideoId}/status`);
+                        const statusData = await statusResponse.json();
+                        
+                        if (statusData.status === 'completed') {
+                            clearInterval(pollInterval);
+                            status.textContent = '✅ Video processed successfully!';
+                            document.getElementById('videoInfo').innerHTML = `
+                                <h3 class="font-semibold text-lg">${statusData.metadata.title || 'Unknown Title'}</h3>
+                                <p class="text-sm text-gray-600">Ready for questions!</p>
+                            `;
+                            document.getElementById('chatSection').classList.remove('hidden');
+                            processBtn.disabled = false;
+                            processBtn.textContent = 'Process Video';
+                        } else if (statusData.status === 'failed') {
+                            clearInterval(pollInterval);
+                            status.textContent = '❌ Video processing failed';
+                            processBtn.disabled = false;
+                            processBtn.textContent = 'Process Video';
+                        } else {
+                            status.textContent = `Processing... (${statusData.status})`;
+                        }
+                    } catch (err) {
+                        clearInterval(pollInterval);
+                        status.textContent = '❌ Error checking status';
+                        processBtn.disabled = false;
+                        processBtn.textContent = 'Process Video';
+                    }
+                }, 2000);
+
+            } catch (error) {
+                status.textContent = `❌ Error: ${error.message}`;
+                processBtn.disabled = false;
+                processBtn.textContent = 'Process Video';
+            }
+        });
+
+        // Send chat message
+        document.getElementById('chatForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const messageInput = document.getElementById('messageInput');
+            const message = messageInput.value.trim();
+            if (!message || !currentVideoId) return;
+
+            const messagesDiv = document.getElementById('messages');
+            
+            // Add user message
+            messagesDiv.innerHTML += `
+                <div class="flex justify-end">
+                    <div class="bg-blue-500 text-white p-3 rounded-lg max-w-xs">
+                        ${message}
+                    </div>
+                </div>
+            `;
+            
+            messageInput.value = '';
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+            try {
+                const response = await fetch(`${API_BASE}/api/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        video_id: currentVideoId,
+                        message: message,
+                        conversation_id: currentConversationId
+                    })
+                });
+
+                const result = await response.json();
+                currentConversationId = result.conversation_id;
+
+                // Add assistant message
+                messagesDiv.innerHTML += `
+                    <div class="flex justify-start">
+                        <div class="bg-gray-100 text-gray-900 p-3 rounded-lg max-w-xs">
+                            ${result.response}
+                            ${result.sources.length > 0 ? 
+                                `<div class="text-xs text-gray-500 mt-2 pt-2 border-t">
+                                    Based on ${result.sources.length} source(s)
+                                </div>` : ''
+                            }
+                        </div>
+                    </div>
+                `;
+
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+            } catch (error) {
+                messagesDiv.innerHTML += `
+                    <div class="flex justify-start">
+                        <div class="bg-red-100 text-red-800 p-3 rounded-lg max-w-xs">
+                            Error: ${error.message}
+                        </div>
+                    </div>
+                `;
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            }
+        });
+
+        // Check backend on load
+        checkBackend();
+        setInterval(checkBackend, 10000); // Check every 10 seconds
+    </script>
+</body>
+</html>

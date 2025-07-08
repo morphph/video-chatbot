@@ -60,16 +60,24 @@ async def health_check():
 
 async def process_video_background(url: str, user_id: str):
     """Background task for video processing"""
+    import logging
+    logger = logging.getLogger(__name__)
+    video_id = None
+    
     try:
+        logger.info(f"Starting video processing for URL: {url}")
+        
         # Process the video
         result = video_processor.process_video(url)
         video_id = result["video_id"]
+        logger.info(f"Video processing completed for {video_id}, chunks: {result['chunk_count']}")
         
         # Update status
         video_processing_status[video_id] = {
             "status": "indexing",
             "metadata": result["metadata"]
         }
+        logger.info(f"Starting vector indexing for {video_id}")
         
         # Create vector index
         success = vector_store.create_video_index(
@@ -77,6 +85,7 @@ async def process_video_background(url: str, user_id: str):
             chunks=result["chunks"],
             metadata=result["metadata"]
         )
+        logger.info(f"Vector indexing {'successful' if success else 'failed'} for {video_id}")
         
         # Update final status
         video_processing_status[video_id] = {
@@ -84,13 +93,26 @@ async def process_video_background(url: str, user_id: str):
             "metadata": result["metadata"],
             "chunk_count": result["chunk_count"]
         }
+        logger.info(f"Video processing fully completed for {video_id}")
         
     except Exception as e:
-        if "video_id" in locals():
+        logger.error(f"Video processing failed for {url}: {str(e)}", exc_info=True)
+        if video_id:
             video_processing_status[video_id] = {
                 "status": "failed",
                 "error": str(e)
             }
+        else:
+            # Extract video ID for error status
+            try:
+                video_id = video_processor.extract_video_id(url)
+                if video_id:
+                    video_processing_status[video_id] = {
+                        "status": "failed",
+                        "error": str(e)
+                    }
+            except:
+                pass
 
 # Video processing endpoint
 @app.post("/api/videos/process")

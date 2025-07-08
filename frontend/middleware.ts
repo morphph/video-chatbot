@@ -1,9 +1,11 @@
-import { authMiddleware } from "@clerk/nextjs";
+// Temporarily disabled authentication for development
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
 
-export default authMiddleware({
-  publicRoutes: ["/"],
-  ignoredRoutes: ["/api/health"]
-});
+export function middleware(request: NextRequest) {
+  // For now, just pass through all requests without authentication
+  return NextResponse.next()
+}
 
 export const config = {
   matcher: ["/((?!.+\\.[\\w]+$|_next).*)", "/", "/(api|trpc)(.*)"],
